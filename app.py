@@ -55,8 +55,8 @@ def process_and_analyze_data(stock_code):
     data['MACD 오실레이터'] = data['MACD'] - data['시그널']
     stats = {
         '상위 10%': data['MACD 오실레이터'].quantile(0.9), '상위 25%': data['MACD 오실레이터'].quantile(0.75),
-        '평균': data['MACD 오실레이터'].mean(),
-        '하위 25%': data['MACD 오실레이터'].quantile(0.25), '하위 10%': data['MACD 오실레이터'].quantile(0.1), # <--- 누락되었던 통계 추가
+        '평균': data['MACD 오실레이터'].mean(), '하위 25%': data['MACD 오실레이터'].quantile(0.25),
+        '하위 10%': data['MACD 오실레이터'].quantile(0.1),
     }
     return data, stats
 
@@ -68,6 +68,10 @@ def create_macd_graph(data, stats, stock_name, stock_code):
     ax1.grid(True, axis='y', linestyle=':')
     ax1.tick_params(axis='x', rotation=45, labelsize=8)
 
+    # 요청사항: 날짜별 세로 점선 추가
+    for date in data.index:
+        ax1.axvline(date, color='gray', linestyle=':', linewidth=0.5)
+
     ax2 = ax1.twinx()
     ax2.plot(data.index, data['MACD 오실레이터'], label='MACD 오실레이터', color='red')
     ax2.set_ylabel('MACD 오실레이터', color='black', fontsize=10)
@@ -78,7 +82,6 @@ def create_macd_graph(data, stats, stock_name, stock_code):
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax2_lines_labels = {lbl: hnd for hnd, lbl in zip(lines2, labels2)}
 
-    # 범례 순서와 내용 정의 (하위 10%, 25% 다시 추가)
     legend_order = [
         ('상위 10%', 'green', '--'), ('상위 25%', 'blue', '--'), ('평균', 'purple', '-'),
         ('하위 25%', 'blue', '--'), ('하위 10%', 'green', '--')
@@ -91,64 +94,46 @@ def create_macd_graph(data, stats, stock_name, stock_code):
         
     plt.title(f'{stock_name}({stock_code}) - 시가총액과 MACD 오실레이터', fontsize=14)
     
-    # 범례를 그래프 하단 중앙에 5열로 배치
     fig.legend(lines + list(ax2_lines_labels.values()), ['시가총액', 'MACD 오실레이터'] + list(ax2_lines_labels.keys())[1:],
                loc='lower center', bbox_to_anchor=(0.5, -0.1), ncol=4, fontsize=9)
     
     fig.tight_layout(rect=[0, 0.05, 1, 1])
     return fig
 
+# 요청사항: 실시간 검색을 위한 전체 종목 목록 캐싱 함수
 @st.cache_data
-def search_stock_code(keyword):
+def get_all_stock_info():
+    """앱 로딩 시 한 번만 전체 종목 코드와 이름을 가져와 캐싱합니다."""
     today_str = datetime.now().strftime("%Y%m%d")
     tickers = stock.get_market_ticker_list(date=today_str, market="ALL")
-    stock_info = {stock.get_market_ticker_name(ticker): ticker for ticker in tickers}
-    if keyword in stock_info:
-        return {keyword: stock_info[keyword]}, None
-    similar_stocks = {name: code for name, code in stock_info.items() if keyword in name}
-    return (None, similar_stocks) if similar_stocks else (None, None)
+    return {stock.get_market_ticker_name(ticker): ticker for ticker in tickers}
 
 # --- Streamlit 앱 인터페이스 ---
 
 st.set_page_config(page_title="주식 분석", layout="centered")
 st.title('📈 MACD 오실레이터를 활용한 주식 분석')
 
-if 'selected_stock_code' not in st.session_state:
-    st.session_state.update({'selected_stock_code': None, 'selected_stock_name': None, 'similar_stocks': None})
+# 전체 종목 정보 로드
+all_stock_info = get_all_stock_info()
+stock_names = ["종목을 선택하세요..."] + list(all_stock_info.keys())
 
-stock_name_input = st.text_input('분석할 종목명을 입력하세요 (예: 삼성전자):', '')
+# 요청사항: 통합 검색 및 선택 Selectbox
+selected_stock_name = st.selectbox(
+    '분석할 종목명을 검색하거나 선택하세요:',
+    options=stock_names
+)
 
-if st.button('종목 검색'):
-    if stock_name_input:
-        exact_match, similar_stocks = search_stock_code(stock_name_input)
-        if exact_match:
-            st.session_state.selected_stock_name, st.session_state.selected_stock_code = list(exact_match.items())[0]
-            st.session_state.similar_stocks = None
-            st.rerun()
-        elif similar_stocks:
-            st.warning("정확히 일치하는 종목이 없습니다. 아래 목록에서 선택해주세요.")
-            st.session_state.similar_stocks = similar_stocks
-        else:
-            st.error("해당 이름으로 종목을 찾을 수 없습니다.")
-
-if st.session_state.similar_stocks:
-    options = [f"{name} ({code})" for name, code in st.session_state.similar_stocks.items()]
-    selected_option = st.radio("비슷한 종목 목록:", options, horizontal=True)
-    if st.button("이 종목으로 분석하기"):
-        name, code = selected_option.rsplit(' (', 1)
-        st.session_state.selected_stock_name = name
-        st.session_state.selected_stock_code = code.replace(')', '')
-        st.session_state.similar_stocks = None
-        st.rerun()
-
-if st.session_state.selected_stock_code:
-    st.header(f"분석 결과: {st.session_state.selected_stock_name} ({st.session_state.selected_stock_code})")
+# 사용자가 종목을 선택했을 때만 분석 실행
+if selected_stock_name != "종목을 선택하세요...":
+    selected_stock_code = all_stock_info[selected_stock_name]
+    
+    st.header(f"분석 결과: {selected_stock_name} ({selected_stock_code})")
+    
     with st.spinner('데이터를 불러와 분석하는 중입니다...'):
-        data, stats = process_and_analyze_data(st.session_state.selected_stock_code)
+        data, stats = process_and_analyze_data(selected_stock_code)
     
     if data is not None and not data.empty:
         st.subheader("📊 MACD 오실레이터 통계")
-        # 누락되었던 '하위' 통계 다시 표시
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("상위 10%", f"{stats['상위 10%']:.4f}")
@@ -160,7 +145,7 @@ if st.session_state.selected_stock_code:
             st.metric("평균", f"{stats['평균']:.4f}")
 
         st.subheader("📈 그래프")
-        graph = create_macd_graph(data, stats, st.session_state.selected_stock_name, st.session_state.selected_stock_code)
+        graph = create_macd_graph(data, stats, selected_stock_name, selected_stock_code)
         st.pyplot(graph)
 
         with st.expander("최근 10일 데이터 보기"):
