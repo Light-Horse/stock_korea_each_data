@@ -100,12 +100,13 @@ def create_macd_graph(data, stats, stock_name, stock_code):
     return fig
 
 @st.cache_data
+@st.cache_data
 def search_stock_code(keyword):
     """종목명을 기반으로 종목 코드를 검색합니다."""
-    # 오늘 날짜를 기준으로 가장 최신 종목 목록을 가져오도록 수정
-    today_str = datetime.now().strftime("%Y%m%d")
-    tickers = stock.get_market_ticker_list(date=today_str, market="ALL")
-    
+    # date 인자를 제거하여 pykrx가 자동으로 최신 영업일을 찾도록 합니다.
+    tickers = stock.get_market_ticker_list(market="ALL")
+
+    # (이하 코드는 동일)
     stock_info = {stock.get_market_ticker_name(ticker): ticker for ticker in tickers}
     if keyword in stock_info:
         return {keyword: stock_info[keyword]}, None
