@@ -1,4 +1,4 @@
 streamlit
 pandas
 matplotlib
-pykrx
+pykrx==1.0.57
